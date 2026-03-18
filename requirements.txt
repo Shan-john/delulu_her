@@ -1,0 +1,25 @@
+# Core AI / LLM
+groq>=1.1.1                     # High-speed LLM inference
+google-generativeai>=0.3.0       # Gemini API
+openai-whisper>=20231117        # Speech-to-text (Whisper Tiny, local)
+
+# Audio
+sounddevice>=0.4.6              # Microphone capture
+numpy>=1.24.0                   # Audio buffer processing
+scipy>=1.11.0                   # Audio utilities (WAV write)
+
+# Database
+pymongo>=4.6.0                  # MongoDB driver
+
+# TTS 
+gTTS>=2.5.1                     # Google Text-to-Speech
+pygame>=2.5.2                   # Audio playback (for gTTS)
+pydub>=0.25.1                   # Audio manipulation
+
+# Utilities
+python-dotenv>=1.0.0            # .env config loader
+schedule>=1.2.1                 # Background task scheduling
+colorlog>=6.8.0                 # Colored terminal logging
+
+# Optional dev tools
+requests>=2.31.0                # Useful for future API calls
