@@ -18,41 +18,44 @@ import config
 from consciousness import environment, state, thought_loop
 from core import audio, personality, prompt_builder, reasoning, tts
 from memory import database, extractor, learner, retriever
-from services import email_service, reminder_service
+from services import email_service, music_service, reminder_service
 from utils.logger import get_logger
 
 log = get_logger("main")
 
-# ── Speech Accumulator ──
-_speech_accumulator = []
-
 
 def on_user_speech(user_text: str) -> None:
-    """Callback triggered whenever user speaks. Wait for 'yeah' to process."""
-    global _speech_accumulator
-    
-    text_clean = user_text.strip().lower().rstrip(".!?")
-    
-    if text_clean.endswith(" yeah") or text_clean == "yeah":
-        # Trigger word "yeah" detected!
-        if text_clean == "yeah":
-            final_text = " ".join(_speech_accumulator)
-        else:
-            # Cut off " yeah"
-            this_segment = user_text.strip()[:-4].strip()
-            final_text = " ".join(_speech_accumulator + [this_segment])
-        
-        _speech_accumulator = []
-        if final_text:
-            _process_final_request(final_text)
-    else:
-        # Just buffer it
-        _speech_accumulator.append(user_text.strip())
-        log.info("🎤 Listening... (Buffered: %s)", user_text.strip())
-
-def _process_final_request(user_text: str) -> None:
-    """The original processing logic, now called only when 'yeah' is said."""
+    """
+    Main processing callback: fired whenever user speaks (or types).
+    1. Update state (user interacted)
+    2. Extract meaning & learn
+    3. Build context-aware prompt
+    4. Generate response
+    5. Speak response
+    """
     log.info("\n👤 User: %s", user_text)
+    
+    text_lower = user_text.lower()
+
+    # ── Music Interaction ───────────────────────────────────────────────────
+    if "sing a song" in text_lower or "play some music" in text_lower:
+        log.info("Requesting random music...")
+        response = music_service.play_random()
+        tts.speak(response)
+        return
+
+    if text_lower.startswith("play "):
+        song_query = user_text[5:].strip()
+        if song_query:
+            log.info("Requesting specific music: %s", song_query)
+            response = music_service.search_and_play(song_query)
+            tts.speak(response)
+            return
+
+    if "stop music" in text_lower or "stop the song" in text_lower:
+        music_service.stop_music()
+        tts.speak("Okay, I've stopped the music.")
+        return
 
     # 1. Update consciousness state
     state.record_interaction()
@@ -149,6 +152,10 @@ def start_system() -> None:
 
         # Start Audio Capture / Keyboard Fallback
         audio.start_listening(on_transcription=on_user_speech)
+
+        # ── Startup Greeting ──
+        # Let the user know we are awake and listening!
+        threading.Thread(target=tts.speak_sync, args=("Hey there! I'm wide awake and listening. What's on your mind?",), daemon=True).start()
 
         # Main thread simply sleeps and keeps daemon threads alive
         while True:

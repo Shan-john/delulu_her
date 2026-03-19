@@ -43,3 +43,24 @@ mongodb_data/
 # OS
 .DS_Store
 Thumbs.db
+
+# Audio & Temporary AI Files
+*.mp3
+*.wav
+*.m4a
+audio/captured/
+audio/generated/
+temp/
+_gemini/
+
+# Workspace Settings
+.vscode/
+.idea/
+.project
+.pydevproject
+.settings/
+.env
+
+# Logs
+*.log
+logs/

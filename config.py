@@ -66,7 +66,9 @@ EMAIL_MAX_FETCH        = _int(os.getenv("EMAIL_MAX_FETCH", "5"), 5)
 
 # ── Personality & Consciousness ───────────────────────────────────────────────
 AI_NAME                  = os.getenv("AI_NAME", "Delulu")
-THOUGHT_LOOP_MIN_SEC     = _int(os.getenv("THOUGHT_LOOP_MIN_SEC", "30"), 30)
+THOUGHT_LOOP_MIN_SEC     = _int(os.getenv("THOUGHT_LOOP_MIN_SEC", "30"), 30)# ── Music ────────────────────────────────────────────────────────────────────
+RAPIDAPI_KEY          = os.getenv("RAPIDAPI_KEY", "")
+MUSIC_API_HOST        = os.getenv("MUSIC_API_HOST", "shazam-core.p.rapidapi.com")
 THOUGHT_LOOP_MAX_SEC     = _int(os.getenv("THOUGHT_LOOP_MAX_SEC", "120"), 120)
 SPEAK_THOUGHT_PROB       = _float(os.getenv("SPEAK_THOUGHT_PROBABILITY", "0.25"), 0.25)
 CURIOSITY_DECAY          = _float(os.getenv("CURIOSITY_DECAY_RATE", "0.05"), 0.05)
