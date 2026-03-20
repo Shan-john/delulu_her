@@ -47,7 +47,7 @@ _audio_queue: queue.Queue       = queue.Queue()
 _speech_buffer: list[np.ndarray] = []
 _in_speech     = False
 _silence_count = 0
-_SILENCE_CHUNKS_NEEDED = int(1.2 / config.AUDIO_CHUNK_DURATION)  # More natural pause (1.2s silence)
+_SILENCE_CHUNKS_NEEDED = int(2.2 / config.AUDIO_CHUNK_DURATION)  # More natural pause (2.2s silence)
 
 
 # ── Public API ─────────────────────────────────────────────────────────────
@@ -163,6 +163,11 @@ def _process_chunk(chunk: np.ndarray, callback: Callable[[str], None]) -> None:
         if _silence_count >= _SILENCE_CHUNKS_NEEDED:
             # Speech ended — transcribe
             log.debug("Speech ended. Buffered %d chunks.", len(_speech_buffer))
+            
+            # Play a chime to notify the user we're processing (non-blocking)
+            from core import tts
+            tts.play_chime()
+
             audio_data = np.concatenate(_speech_buffer, axis=0).flatten()
             _speech_buffer = []
             _in_speech = False
@@ -178,17 +183,44 @@ def _process_chunk(chunk: np.ndarray, callback: Callable[[str], None]) -> None:
 
 
 def _transcribe(audio: np.ndarray, callback: Callable[[str], None]) -> None:
-    """Run Whisper STT on buffered audio."""
+    """Run Whisper STT on buffered audio with hallucination filtering."""
     try:
+        # 1 — Basic energy check (ensure captured audio isn't just silence/noise)
+        avg_rms = float(np.sqrt(np.mean(audio ** 2)))
+        log.debug("Transcription energy: %.4f", avg_rms)
+        if avg_rms < config.SILENCE_THRESHOLD * 0.8:
+            log.debug("Captured buffer too quiet, skipping transcription.")
+            return
+
         model = _get_whisper()
-        # Use current language from config for better accuracy (e.g., 'ml' for Malayalam)
+        # Use current language from config for better accuracy
         lang = config.CURRENT_LANGUAGE if config.CURRENT_LANGUAGE in ["en", "ml"] else None
         
         result = model.transcribe(audio, fp16=False, language=lang)
         text = result.get("text", "").strip()
         
-        if text:
-            log.info("🎤 Captured: %s", text)
-            callback(text)
+        if not text:
+            return
+
+        # 2 — Filter Whisper hallucinations (common noise interpretations)
+        hallucinations = [
+            "thank you for watching", "subscribed", "thanks for watching",
+            "thank you", "subtitles by", "bye", "you", "so", "oh", "um", "the", "."
+        ]
+        
+        clean_text = text.lower().replace(".", "").replace(",", "").replace("!", "").strip()
+        
+        if clean_text in hallucinations:
+            log.debug("Filtered transcription hallucination: '%s'", text)
+            return
+            
+        # Ignore very short nonsensical transcriptions if energy is borderline
+        if len(text) <= 3 and avg_rms < config.SILENCE_THRESHOLD * 1.5:
+             log.debug("Filtered short borderline energy noise: '%s'", text)
+             return
+
+        log.info("🎤 Captured: %s", text)
+        callback(text)
+        
     except Exception as e:
         log.error("Whisper error: %s", e)

@@ -86,6 +86,11 @@ GROQ_API_KEY      = os.getenv("GROQ_API_KEY", "")
 USE_GROQ          = _bool(os.getenv("USE_GROQ", "false"))
 GROQ_MODEL        = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 
+# ── NVIDIA ────────────────────────────────────────────────────────────────
+NVIDIA_API_KEY    = os.getenv("NVIDIA_API_KEY", "")
+USE_NVIDIA        = _bool(os.getenv("USE_NVIDIA", "false"))
+NVIDIA_MODEL      = os.getenv("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct")
+
 # ── Language ───────────────────────────────────────────────────────────────
 CURRENT_LANGUAGE  = os.getenv("CURRENT_LANGUAGE", "en") # 'en' or 'ml'
 SILENCE_THRESHOLD = _float(os.getenv("AUDIO_SILENCE_THRESHOLD", "0.01"), 0.01)

@@ -1,6 +1,7 @@
 # Core AI / LLM
 groq>=1.1.1                     # High-speed LLM inference
 google-generativeai>=0.3.0       # Gemini API
+openai>=1.0.0                    # Standard OpenAI & NVIDIA NIM
 openai-whisper>=20231117        # Speech-to-text (Whisper Tiny, local)
 
 # Audio
@@ -24,3 +25,7 @@ colorlog>=6.8.0                 # Colored terminal logging
 
 # Optional dev tools
 requests>=2.31.0                # Useful for future API calls
+
+# YouTube Music
+ytmusicapi>=1.7.0               # Search YouTube Music
+yt-dlp>=2024.12.06              # Stream YouTube Music audio

@@ -26,6 +26,7 @@ from consciousness.state import (
     update_state,
 )
 from memory.retriever import retrieve_random_memory, retrieve_pending_followups
+from services import music_service
 from utils.logger import get_logger
 
 log = get_logger("thought_loop")
@@ -75,6 +76,10 @@ def _loop() -> None:
 
 def _tick() -> None:
     """One cycle of the thought loop."""
+    # Skip if music is playing (User Request)
+    if music_service.is_playing():
+        return
+
     # 1 — Decay state (simulate tiredness / boredom over time)
     decay_state()
 

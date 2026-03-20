@@ -1,102 +1,134 @@
-import requests
-import pygame
+"""
+services/music_service.py — Real-time Streaming via YouTube.
+Uses ffplay to stream direct URLs from YouTube for instant playback.
+"""
+
 import os
 import threading
-import tempfile
+import subprocess
+import signal
+from ytmusicapi import YTMusic
+import yt_dlp
 import config
 from utils.logger import get_logger
 
 log = get_logger("music")
 
+# Track the ffplay process globally so we can stop it
+_ffplay_process: subprocess.Popen | None = None
 _is_playing = False
 
+def is_playing() -> bool:
+    """Check if music is currently playing."""
+    return _is_playing
+
+
 def search_and_play(query: str):
-    """Search for a song and play its preview."""
+    """Search for a song and stream its audio instantly via ffplay."""
     global _is_playing
     
-    if not config.RAPIDAPI_KEY:
-        log.error("RapidAPI Key missing. Cannot search music.")
-        return "I'm sorry, I don't have the keys to the music library yet."
-
-    url = f"https://{config.MUSIC_API_HOST}/v1/search/multi"
-    querystring = {"query": query, "search_type": "SONGS"}
-    headers = {
-        "X-Rapidapi-Key": config.RAPIDAPI_KEY,
-        "X-Rapidapi-Host": config.MUSIC_API_HOST
-    }
-
+    log.info("Searching YouTube Music for: '%s'", query)
     try:
-        response = requests.get(url, headers=headers, params=querystring, timeout=10)
-        data = response.json()
+        yt = YTMusic()
+        # Search for songs
+        results = yt.search(query, filter="songs", limit=3)
         
-        tracks = data.get("tracks", {}).get("hits", [])
-        if not tracks:
-            return f"I couldn't find any songs titled '{query}'."
+        if not results:
+            log.warning("No YouTube Music results for: %s", query)
+            return f"I couldn't find '{query}' on YouTube Music."
 
-        track = tracks[0].get("track", {})
-        title = track.get("title", "Unknown Song")
-        artist = track.get("subtitle", "Unknown Artist")
+        track = results[0]
+        video_id = track.get("videoId")
+        title    = track.get("title", "Unknown Title")
+        artist   = ", ".join([a.get("name") for a in track.get("artists", [])])
         
-        # Extract preview URL
-        actions = track.get("hub", {}).get("actions", [])
-        preview_url = None
-        for action in actions:
-            if action.get("type") == "uri":
-                preview_url = action.get("uri")
-                break
-        
-        if not preview_url:
-            return f"I found '{title}' by {artist}, but I can't play it right now."
+        if not video_id:
+            return "Wait, I found the song but it doesn't have a playback ID?"
 
-        # Play in background
+        # Stop existing music
         stop_music()
-        threading.Thread(target=_play_url, args=(preview_url,), daemon=True).start()
-        _is_playing = True
         
-        return f"Playing '{title}' by {artist}."
+        # Start streaming in a background thread
+        threading.Thread(
+            target=_stream_video_audio, 
+            args=(video_id, title, artist), 
+            daemon=True
+        ).start()
+        
+        _is_playing = True
+        return f"Instant stream starting! Playing '{title}' by {artist}."
 
     except Exception as e:
-        log.error("Music search error: %s", e)
-        return "Something went wrong while searching for music."
+        log.error("YouTube Music search failed: %s", e)
+        return "My YouTube Music brain is confused... maybe ask again?"
 
 def play_random():
-    """Play a random popular song (Shazam doesn't have a direct 'random' but we can search for a common term)."""
-    random_terms = ["pop", "rock", "lofi", "chill", "top hits", "dance"]
-    import random
-    term = random.choice(random_terms)
-    return search_and_play(term)
+    """Play trending music."""
+    return search_and_play("popular top hits 2024")
 
 def stop_music():
-    """Stop any currently playing music."""
-    global _is_playing
-    try:
-        pygame.mixer.init() # Ensure mixer is up
-        pygame.mixer.music.stop()
-        _is_playing = False
-    except:
-        pass
+    """Immediately stop the ffplay stream."""
+    global _is_playing, _ffplay_process
+    _is_playing = False
+    
+    if _ffplay_process:
+        try:
+            log.info("Stopping ffplay process...")
+            if os.name == 'nt':
+                # Force kill on Windows to be sure
+                subprocess.run(['taskkill', '/F', '/T', '/PID', str(_ffplay_process.pid)], 
+                               capture_output=True, timeout=1)
+            else:
+                _ffplay_process.terminate()
+                _ffplay_process.wait(timeout=2)
+        except Exception as e:
+            log.debug("Error stopping ffplay: %s", e)
+            try: _ffplay_process.kill()
+            except: pass
+        _ffplay_process = None
 
-def _play_url(url: str):
-    """Download and play the audio preview."""
+def _stream_video_audio(video_id: str, title: str, artist: str):
+    """Fetch the direct stream URL and pipe it into ffplay."""
+    global _ffplay_process, _is_playing
+    
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    log.info("Streaming video audio: %s", url)
+
     try:
-        response = requests.get(url, stream=True)
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".mp3") as f:
-            for chunk in response.iter_content(chunk_size=8192):
-                f.write(chunk)
-            temp_path = f.name
+        # 1. Get the direct audio URL with yt-dlp (No download)
+        ydl_opts = {
+            'format': 'bestaudio/best',
+            'quiet': True,
+            'no_warnings': True,
+            'noplaylist': True,
+        }
         
-        pygame.mixer.init()
-        pygame.mixer.music.load(temp_path)
-        pygame.mixer.music.play()
-        
-        # Wait for it to finish or be stopped
-        while pygame.mixer.music.get_busy():
-            pygame.time.Clock().tick(10)
-        
-        # Cleanup
-        pygame.mixer.music.unload()
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            stream_url = info.get('url')
             
+        if not stream_url or not _is_playing:
+            return
+
+        # 2. Launch ffplay to stream the URL directly
+        # -nodisp: don't show video window
+        # -autoexit: close when done
+        # -loglevel quiet: keep logs clean
+        _ffplay_process = subprocess.Popen(
+            ["ffplay", "-nodisp", "-autoexit", "-loglevel", "quiet", stream_url],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == 'nt' else 0 # Hide window on Windows
+        )
+        
+        log.debug("ffplay streaming active for: %s", title)
+        
+        # Monitor the process until it finishes
+        _ffplay_process.wait()
+        _is_playing = False
+        _ffplay_process = None
+        
     except Exception as e:
-        log.error("Error playing music: %s", e)
+        log.error("Streaming error: %s", e)
+        _is_playing = False
+        _ffplay_process = None

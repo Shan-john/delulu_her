@@ -16,6 +16,7 @@ import schedule
 
 import config
 from memory.database import get_db, db_log
+from services import music_service
 from utils.logger import get_logger
 
 log = get_logger("reminder_service")
@@ -50,6 +51,10 @@ def _loop() -> None:
 
 def _check_reminders() -> None:
     """Find due events, mark as followed_up, and trigger a spoken reminder."""
+    # Skip if music is playing (User Request)
+    if music_service.is_playing():
+        return
+
     db = get_db()
     now = datetime.datetime.utcnow()
 

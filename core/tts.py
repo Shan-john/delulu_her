@@ -82,6 +82,42 @@ def _say_local(text: str) -> None:
     engine.say(text)
     engine.runAndWait()
 
+def play_chime() -> None:
+    """Play a short, soft notification tone (non-blocking)."""
+    import threading
+    def _play():
+        try:
+            # Ensure mixer is initialized
+            if not pygame.mixer.get_init():
+                start()
+            
+            if not pygame.mixer.get_init():
+                log.error("Cannot play chime: Mixer failed to initialize.")
+                return
+            
+            # Create a simple soft chime tone (440Hz sine wave)
+            import numpy as np
+            sample_rate = 44100
+            duration = 0.12  # Slightly longer
+            frequency = 440.0 # A4
+            
+            t = np.linspace(0, duration, int(sample_rate * duration), False)
+            # Create a fade-out to avoid clicks
+            envelope = np.exp(-t * 22)
+            tone = 0.08 * np.sin(2 * np.pi * frequency * t) * envelope # Slightly softer
+            
+            # Convert to 16-bit PCM
+            tone_pcm = (tone * 32767).astype(np.int16)
+            # Duplicate for stereo
+            tone_stereo = np.column_stack((tone_pcm, tone_pcm))
+            
+            sound = pygame.sndarray.make_sound(tone_stereo)
+            sound.play()
+        except Exception as e:
+            log.debug("Chime error: %s", e)
+            
+    threading.Thread(target=_play, daemon=True).start()
+
 def stop():
     try: pygame.mixer.quit()
     except: pass

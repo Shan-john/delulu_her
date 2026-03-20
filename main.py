@@ -38,24 +38,53 @@ def on_user_speech(user_text: str) -> None:
     text_lower = user_text.lower()
 
     # ── Music Interaction ───────────────────────────────────────────────────
-    if "sing a song" in text_lower or "play some music" in text_lower:
-        log.info("Requesting random music...")
-        response = music_service.play_random()
-        tts.speak(response)
-        return
-
-    if text_lower.startswith("play "):
-        song_query = user_text[5:].strip()
-        if song_query:
-            log.info("Requesting specific music: %s", song_query)
-            response = music_service.search_and_play(song_query)
+    import re
+    
+    # 0. Check for Confirmation
+    pending_song = state.get_pending_song()
+    if pending_song:
+        # Broad confirmation match
+        if any(k in text_lower for k in ["yes", "yeah", "sure", "do it", "play it", "okay", "yep", "ok", "play now", "shall we"]):
+            log.info("Confirmation received for: %s", pending_song)
+            state.set_pending_song(None) # Clear
+            
+            if pending_song == "random_music_request":
+                response = music_service.play_random()
+            else:
+                response = music_service.search_and_play(pending_song)
+                
             tts.speak(response)
             return
+        elif any(k in text_lower for k in ["no", "don't", "stop", "nevermind", "cancel", "no thanks"]):
+            log.info("Confirmation denied for: %s", pending_song)
+            state.set_pending_song(None) # Clear
+            tts.speak("No problem, I won't play it.")
+            return
 
-    if "stop music" in text_lower or "stop the song" in text_lower:
+    # 1. Stop Music (Highest priority to avoid regex conflicts)
+    if any(k in text_lower for k in ["stop music", "stop playing", "stop the music", "stop the song", "shut up the music"]):
+        log.info("Stopping music session...")
+        state.set_pending_song(None) # Clear pending if stopping
         music_service.stop_music()
         tts.speak("Okay, I've stopped the music.")
         return
+
+    # 2. Play Random / Specific Music
+    if "sing a song" in text_lower or "play some music" in text_lower:
+        log.info("Requesting random music confirmation...")
+        state.set_pending_song("random_music_request")
+        tts.speak("You want to hear some music? Should I play something popular for you?")
+        return
+
+    play_match = re.search(r"play\s+(.+)", text_lower)
+    if play_match:
+        song_query = play_match.group(1).strip()
+        # Filter out common false positives
+        if song_query not in ["with me", "a game", "around", "playing", "music"]:
+            log.info("Requesting specific music confirmation: %s", song_query)
+            state.set_pending_song(song_query)
+            tts.speak(f"Oh! You want to hear {song_query}? Just to be sure, should I play it?")
+            return
 
     # 1. Update consciousness state
     state.record_interaction()
@@ -172,6 +201,7 @@ def start_system() -> None:
 def _shutdown() -> None:
     """Cleanly stop background threads."""
     log.info("Shutting down components...")
+    music_service.stop_music()
     thought_loop.stop()
     email_service.stop()
     reminder_service.stop()

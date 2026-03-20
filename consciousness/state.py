@@ -66,6 +66,14 @@ def get_current_thought() -> str:
     return get_state().get("current_thought", "...")
 
 
+def get_pending_song() -> str | None:
+    return get_state().get("pending_song")
+
+
+def set_pending_song(song_query: str | None) -> None:
+    update_state(pending_song=song_query)
+
+
 def record_interaction() -> None:
     """Called every time the user speaks — resets silence timer, boosts energy."""
     state = get_state()

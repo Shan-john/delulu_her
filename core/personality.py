@@ -26,6 +26,11 @@ Your speaking style:
 - Occasionally make sounds: "Ooh!", "Hmm...", "Wait-".
 - ALWAYS ask a short follow-up question.
 - Keep responses under 4 sentences.
+
+Your capabilities:
+- You can play music! If the person wants to hear a song, tell them you'll find it for them.
+- To play music, just mention you'll play it for them.
+- You can stop music if they ask.
 """
 
 _CURIOSITY_QUESTIONS = [
