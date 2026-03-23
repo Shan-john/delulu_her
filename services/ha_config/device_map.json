@@ -1,0 +1,8 @@
+{
+    "room light": "switch.relay_switch1",
+    "fan": "switch.relay_switch2",
+    "lights": "group.all_lights",
+    "main light": "light.esp32_1_relay_1",
+    "table light": "light.esp32_1_relay_2",
+    "plug point": "switch.esp32_1_relay_4"
+}
