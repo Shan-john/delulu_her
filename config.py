@@ -62,7 +62,7 @@ EMAIL_IMAP_HOST        = os.getenv("EMAIL_IMAP_HOST", "imap.gmail.com")
 EMAIL_IMAP_PORT        = _int(os.getenv("EMAIL_IMAP_PORT", "993"), 993)
 EMAIL_ADDRESS          = os.getenv("EMAIL_ADDRESS", "")
 EMAIL_PASSWORD         = os.getenv("EMAIL_PASSWORD", "")
-EMAIL_CHECK_INTERVAL   = _int(os.getenv("EMAIL_CHECK_INTERVAL_MIN", "10"), 10)
+EMAIL_CHECK_INTERVAL   = _int(os.getenv("EMAIL_CHECK_INTERVAL_MIN", "1"), 1)
 EMAIL_MAX_FETCH        = _int(os.getenv("EMAIL_MAX_FETCH", "5"), 5)
 
 # ── Personality & Consciousness ───────────────────────────────────────────────

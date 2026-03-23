@@ -12,7 +12,7 @@ import imaplib
 import threading
 import time
 from email.header import decode_header
-from typing import Any
+from typing import Any, Callable
 
 import schedule
 
@@ -66,13 +66,16 @@ def _get_body_snippet(msg: Any, max_len: int = 150) -> str:
     return snippet + "..." if len(body) > max_len else snippet
 
 
-def start() -> None:
+_on_new_email_cb: Callable[[str, str], None] | None = None
+
+def start(on_new_email: Callable[[str, str], None] | None = None) -> None:
     """Start the background email checker."""
     if not config.EMAIL_ENABLED:
         log.info("Email service disabled in config.")
         return
 
-    global _running, _thread
+    global _running, _thread, _on_new_email_cb
+    _on_new_email_cb = on_new_email
     _running = True
     _thread = threading.Thread(target=_loop, name="email-poller", daemon=True)
     _thread.start()
@@ -88,10 +91,12 @@ def stop() -> None:
 
 def _loop() -> None:
     # Schedule periodic checks
-    schedule.every(config.EMAIL_CHECK_INTERVAL).minutes.do(_check_email)
+    # Use a shorter loop time for 'active' checking if enabled
+    check_interval = config.EMAIL_CHECK_INTERVAL
+    schedule.every(check_interval).minutes.do(_check_email)
 
-    # Initial check on startup
-    _check_email()
+    # Initial check on startup (might be noisy if many unread)
+    # _check_email() # Commented out to avoid startup spam, user said "active check" moving forward
 
     while _running:
         schedule.run_pending()
@@ -116,18 +121,22 @@ def _check_email() -> None:
             mail.logout()
             return
 
-        # Fetch only maximum allowed
-        mail_ids = mail_ids[-config.EMAIL_MAX_FETCH:]
-        new_count = 0
+        # Fetch only the absolute most recent email to avoid spamming the user
+        last_id = mail_ids[-1]
+        
+        status, msg_data = mail.fetch(last_id, "(RFC822)")
+        if status == "OK" and msg_data:
+            item = msg_data[0]
+            if isinstance(item, tuple) and len(item) >= 2:
+                raw_content = item[1]
+                if isinstance(raw_content, bytes):
+                    msg = email.message_from_bytes(raw_content)
+                    subject, sender = _process_message(msg)
+                    if _on_new_email_cb:
+                        _on_new_email_cb(sender, subject)
+                    new_count = 1
 
-        for num in mail_ids:
-            status, msg_data = mail.fetch(num, "(RFC822)")
-            if status == "OK" and isinstance(msg_data[0], tuple):
-                msg = email.message_from_bytes(msg_data[0][1])
-                _process_message(msg)
-                new_count += 1
-
-        db_log("email_service", f"Fetched {new_count} new emails.")
+        db_log("email_service", f"Notified about the most recent email.")
         mail.logout()
 
     except Exception as e:
@@ -154,18 +163,22 @@ def fetch_latest_emails(count: int = 5) -> list[dict[str, Any]]:
 
         for mid in latest_ids:
             status, msg_data = mail.fetch(mid, "(RFC822)")
-            if status == "OK" and isinstance(msg_data[0], tuple):
-                msg = email.message_from_bytes(msg_data[0][1])
-                subject = _decode_header(msg.get("Subject", ""))
-                sender = _decode_header(msg.get("From", ""))
-                body = _get_body_snippet(msg)
-                
-                results.append({
-                    "subject": subject,
-                    "sender": sender,
-                    "body": body,
-                    "important": is_important_email(subject, sender)
-                })
+            if status == "OK" and msg_data:
+                item = msg_data[0]
+                if isinstance(item, tuple) and len(item) >= 2:
+                    raw_content = item[1]
+                    if isinstance(raw_content, bytes):
+                        msg = email.message_from_bytes(raw_content)
+                        subject = _decode_header(msg.get("Subject", ""))
+                        sender = _decode_header(msg.get("From", ""))
+                        body = _get_body_snippet(msg)
+                        
+                        results.append({
+                            "subject": subject,
+                            "sender": sender,
+                            "body": body,
+                            "important": is_important_email(subject, sender)
+                        })
 
         mail.logout()
     except Exception as e:
@@ -174,7 +187,7 @@ def fetch_latest_emails(count: int = 5) -> list[dict[str, Any]]:
     return results
 
 
-def _process_message(msg: Any) -> None:
+def _process_message(msg: Any) -> tuple[str, str]:
     """Decode and store email info if it seems important."""
     subject = _decode_header(msg.get("Subject", ""))
     sender = _decode_header(msg.get("From", ""))
@@ -192,3 +205,5 @@ def _process_message(msg: Any) -> None:
             follow_up_after_hours=0,  # immediate follow-up
         ))
         log.info("Email flagged as important and stored as event.")
+    
+    return subject, sender

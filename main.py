@@ -25,131 +25,171 @@ log = get_logger("main")
 
 
 def on_user_speech(user_text: str) -> None:
-    """
-    Main processing callback: fired whenever user speaks (or types).
-    1. Update state (user interacted)
-    2. Extract meaning & learn
-    3. Build context-aware prompt
-    4. Generate response
-    5. Speak response
-    """
-    log.info("\n👤 User: %s", user_text)
-    
-    text_lower = user_text.lower()
-
-    # ── Music Interaction ───────────────────────────────────────────────────
-    import re
-    
-    # 0. Check for Confirmation
-    pending_song = state.get_pending_song()
-    if pending_song:
-        # Broad confirmation match
-        if any(k in text_lower for k in ["yes", "yeah", "sure", "do it", "play it", "okay", "yep", "ok", "play now", "shall we"]):
-            log.info("Confirmation received for: %s", pending_song)
-            state.set_pending_song(None) # Clear
-            
-            if pending_song == "random_music_request":
-                response = music_service.play_random()
-            else:
-                response = music_service.search_and_play(pending_song)
-                
-            tts.speak(response)
-            return
-        elif any(k in text_lower for k in ["no", "don't", "stop", "nevermind", "cancel", "no thanks"]):
-            log.info("Confirmation denied for: %s", pending_song)
-            state.set_pending_song(None) # Clear
-            tts.speak("No problem, bestie! I won't play it.")
-            return
-
-    # 1. Stop Music (Highest priority to avoid regex conflicts)
-    if any(k in text_lower for k in ["stop music", "stop playing", "stop the music", "stop the song", "shut up the music"]):
-        log.info("Stopping music session...")
-        state.set_pending_song(None) # Clear pending if stopping
-        music_service.stop_music()
-        tts.speak("Okay, bestie! I've stopped the music for you.")
-        return
-
-    # 2. Play Random / Specific Music
-    if "sing a song" in text_lower or "play some music" in text_lower:
-        log.info("Requesting random music confirmation...")
-        state.set_pending_song("random_music_request")
-        tts.speak("Ooh! You want to hear some music? Should I play something cute and popular for you?")
-        return
-
-    play_match = re.search(r"play\s+(.+)", text_lower)
-    if play_match:
-        song_query = play_match.group(1).strip()
-        # Filter out common false positives
-        if song_query not in ["with me", "a game", "around", "playing", "music"]:
-            log.info("Requesting specific music confirmation: %s", song_query)
-            state.set_pending_song(song_query)
-            tts.speak(f"Oh! You want to hear {song_query}, sweetie? Just to be sure, should I play it?")
-            return
-
-    # 1. Update consciousness state
-    state.record_interaction()
-
-    # 2. Extract facts & events (AI-powered to ensure we don't miss anything!)
-    extr = extractor.ai_extract(user_text, reasoning.generate)
-
-    # 3. Learn new information (MongoDB)
-    session_id = learner.get_session_id()
-    learner.record_message("user", user_text, extr.topics)
-    facts_stored = learner.learn(extr, user_text)
-
-    if facts_stored > 0:
-        state.on_learned_something()
-
-    # 4. Build prompt (using chat history, memories, internal state)
-    prompt = prompt_builder.build_prompt(user_text, extr, session_id)
-
-    # 5. Generate LLM response
-    log.info("💭 Thinking...")
-    raw_response = reasoning.generate(
-        prompt,
-        max_tokens=100,
-        temperature=0.7
-    )
-
-    # 6. Apply personality post-processing
-    final_response = personality.apply_personality(raw_response, mood=state.get_mood())
-    
-    # ── Mail Interaction ─────────────────────────────────────────────────────
-    text_lower = user_text.lower()
-    # Broadened matching to catch variations like 'checked', 'check', and mishearings like 'main', 'made'
-    mail_keywords = ["mail", "main", "made", "meal", "mate", "mail check", "check my mail"]
-    is_mail_request = any(k in text_lower for k in mail_keywords) and ("check" in text_lower or "read" in text_lower or "any" in text_lower)
-
-    if is_mail_request:
-        log.info("Fetching latest email for user...")
-        latest_mails = email_service.fetch_latest_emails(count=1)
+    """Main processing callback."""
+    try:
+        # ── Wake-word Detection (Fuzzy) ───────────────────────────────────────
+        name = config.AI_NAME.lower()
+        # Common mishearings for "delulu" (Whisper often gets these)
+        fuzzy_names = [name, "delulu",
+"de lulu",
+"delu lu",
+"dellulu",
+"delooloo",
+"deloo loo",
+"dilulu",
+"dilooloo",
+"delloo",
+"dellooo",
+"deloo",
+"delooo",
+"deluuu",
+"deluloo",
+"delulooo",
+"delulul",
+"delululu",
+"delulz",
+"deluls",
+"delu",
+"deluu",
+"deluuu",
+"dulu",
+"duluu",
+"duloo",
+"dululu",
+"dudulu",
+"duduluu",
+"dudu",
+"duduu",
+"duduuu",
+"dooloo",
+"doolu",
+"doolulu",
+"doolooo",
+"lulu",
+"luloo",
+"lulooo",
+"lululu",
+"lulululu",
+"looloo",
+"loolu",
+"loolulu",
+"loooloo",
+"tulu",
+"tululu",
+"tulooo",
+"tilulu",
+"tiloo",
+"dalulu",
+"dalooloo",
+"daluluu",
+"deluluu",
+"delulooo",
+"deloolooo",
+"deooloo",
+"deulu",
+"deululu",
+"deoolulu",
+"de-lulu",
+"de_lulu",
+"d3lulu",
+"delluluu",
+"dellooloo"]
         
-        if not latest_mails:
-            mail_summary = "Your inbox is empty."
-        else:
-            mail_summary = ""
-            for m in latest_mails:
-                status = "IMPORTANT: " if m["important"] else ""
-                # Only include Subject and Body as requested
-                mail_summary += f"{status}Subject: {m['subject']}. Content: {m['body']} "
+        user_text_lower = user_text.lower().strip()
         
-        # Mix it into the final response
-        final_response = f"{mail_summary} {final_response}"
+        # Check if it starts with any of the fuzzy names
+        detected_name = None
+        for f in fuzzy_names:
+            if user_text_lower.startswith(f):
+                detected_name = f
+                break
+        
+        if not detected_name:
+            log.debug("Wake-word not detected, skipping.")
+            return
 
-    # ── Feedback handling (Hallucination/Listening issues) ──
-    if any(k in text_lower for k in ["hallucin", "never said", "didn't say", "did i say", "wrong"]):
-        log.warning("User pointed out a hallucination or listening error.")
-        # Override the response with a gentle apology
-        final_response = "I'm so sorry, bestie! I think I misunderstood or misheard you. I'll listen more carefully now, I promise."
+        # Strip the detected wake-word carefully
+        clean_text = user_text.strip()[len(detected_name):].strip()
+        # Remove any leading punctuation (like commas) after the name
+        clean_text = clean_text.lstrip(",.?! ").strip()
+        
+        if not clean_text:
+            tts.speak(f"Yes bestie? I'm listening!")
+            return
 
+        log.info("\n👤 User (fuzzy detect): %s", user_text)
+        text_lower = clean_text.lower()
+        user_text = clean_text # Replace for further processing
 
-    log.info("\n✨ delulu: %s\n", final_response)
+        # ── Music Interaction ───────────────────────────────────────────────────
+        import re
+        
+        # 0. Check for Confirmation
+        pending_song = state.get_pending_song()
+        if pending_song:
+            if any(k in text_lower for k in ["yes", "yeah", "sure", "do it", "play it", "okay", "ok"]):
+                log.info("Confirmation received for: %s", pending_song)
+                state.set_pending_song(None)
+                response = music_service.play_random() if pending_song == "random_music_request" else music_service.search_and_play(pending_song)
+                tts.speak(response)
+                return
+            elif any(k in text_lower for k in ["no", "don't", "stop", "nevermind", "cancel"]):
+                log.info("Confirmation denied for: %s", pending_song)
+                state.set_pending_song(None)
+                tts.speak("No problem, bestie! I won't play it.")
+                return
 
-    # 7. Record and Speak
-    learner.record_message("assistant", final_response, extr.topics)
+        if any(k in text_lower for k in ["stop music", "stop playing", "stop the music"]):
+            music_service.stop_music()
+            tts.speak("Okay, bestie! I've stopped the music for you.")
+            return
 
-    # Pass to TTS queue (non-blocking)
-    tts.speak(final_response)
+        if "sing a song" in text_lower or "play some music" in text_lower:
+            state.set_pending_song("random_music_request")
+            tts.speak("Ooh! You want to hear some music? Should I play something cute and popular for you?")
+            return
+
+        # 1. Update state & Extract basic topics (fast)
+        state.record_interaction()
+        extr = extractor.extract(user_text) # Use regex for prompt building (fast)
+        
+        session_id = learner.get_session_id()
+        learner.record_message("user", user_text, extr.topics)
+
+        # 2. Start AI Extraction in background (slow) to memory
+        def run_bg_extraction(text):
+            try:
+                ai_extr = extractor.ai_extract(text, reasoning.generate)
+                learner.learn(ai_extr, text)
+            except Exception as e:
+                log.error("Background extraction failed: %s", e)
+        
+        threading.Thread(target=run_bg_extraction, args=(user_text,), daemon=True).start()
+
+        # 3. Build prompt & Generate Reply
+        prompt = prompt_builder.build_prompt(user_text, extr, session_id)
+        log.info("💭 Thinking...")
+        raw_response = reasoning.generate(prompt, max_tokens=100, temperature=0.7)
+        final_response = personality.apply_personality(raw_response, mood=state.get_mood())
+
+        # 3. Mail Integration
+        if any(k in text_lower for k in ["mail", "check my mail", "any mail"]):
+            log.info("Fetching latest email...")
+            latest_mails = email_service.fetch_latest_emails(count=1)
+            mail_summary = f"Subject: {latest_mails[0]['subject']}. Content: {latest_mails[0]['body']}" if latest_mails else "Your inbox is empty."
+            final_response = f"{mail_summary} {final_response}"
+
+        # 4. Feedback handling
+        if any(k in text_lower for k in ["hallucin", "never said", "wrong", "misunderstood"]):
+            final_response = "I'm so sorry, bestie! I think I misunderstood or misheard you. I'll listen more carefully now, I promise."
+
+        log.info("\n✨ delulu: %s\n", final_response)
+        learner.record_message("assistant", final_response, extr.topics)
+        tts.speak(final_response)
+
+    except Exception as e:
+        log.exception("Error in user speech callback: %s", e)
+        tts.speak("Wait, something went a bit wrong inside my head... could you say that again, bestie?")
 
 
 def start_system() -> None:
@@ -170,7 +210,11 @@ def start_system() -> None:
         reasoning.load_model()
 
         # Start Services
-        email_service.start()
+        def on_new_email(sender: str, subject: str):
+            msg = f"Ooh bestie! You just got a new email from {sender} about {subject}. Should I read it for you?"
+            tts.speak(msg)
+
+        email_service.start(on_new_email=on_new_email)
         reminder_service.start(tts.speak_sync)
 
         # Start Thought Loop (inject speak/generate access)
@@ -181,7 +225,8 @@ def start_system() -> None:
 
         # ── Startup Greeting ──
         # Let the user know we are awake and listening!
-        threading.Thread(target=tts.speak_sync, args=("Hi bestie! I'm wide awake and so happy to see you. What's on your mind today?",), daemon=True).start()
+        greeting = f"Hi bestie! I'm wide awake. Remember to start your sentences with '{config.AI_NAME}' so I know you're talking to me!"
+        threading.Thread(target=tts.speak_sync, args=(greeting,), daemon=True).start()
 
         # Main thread simply sleeps and keeps daemon threads alive
         while True:

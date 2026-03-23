@@ -50,7 +50,7 @@ _audio_queue: queue.Queue       = queue.Queue()
 _speech_buffer: list[np.ndarray] = []
 _in_speech     = False
 _silence_count = 0
-_SILENCE_CHUNKS_NEEDED = int(3.5 / config.AUDIO_CHUNK_DURATION)  # Longer pause (3.5s silence) for natural speech flow
+_SILENCE_CHUNKS_NEEDED = int(1.5 / config.AUDIO_CHUNK_DURATION)  # Shorter pause (1.5s silence) for snappier response
 
 
 # ── Public API ─────────────────────────────────────────────────────────────
