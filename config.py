@@ -96,6 +96,11 @@ NVIDIA_MODEL      = os.getenv("NVIDIA_MODEL", "meta/llama-3.3-70b-instruct")
 CURRENT_LANGUAGE  = os.getenv("CURRENT_LANGUAGE", "en")
 SILENCE_THRESHOLD = _float(os.getenv("AUDIO_SILENCE_THRESHOLD", "0.01"), 0.01)
 
+# ── Home Assistant ────────────────────────────────────────────────────────
+HA_ENABLED        = _bool(os.getenv("HA_ENABLED", "false"))
+HA_URL            = os.getenv("HA_URL", "http://homeassistant.local:8123")
+HA_TOKEN          = os.getenv("HA_TOKEN", "")
+
 # ── Derived paths ────────────────────────────────────────────────────────────
 BASE_DIR   = _BASE_DIR
 MODELS_DIR = _BASE_DIR / "models"

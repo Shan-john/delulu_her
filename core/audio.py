@@ -214,11 +214,11 @@ def _transcribe_groq(audio_data: np.ndarray, callback: Callable[[str], None]) ->
             file=buffer,
             model="whisper-large-v3", # Use full Large V3 on Groq!
             prompt=prompt,
-            response_format="text",
+            response_format="json", # Or simply extract .text
             language=config.CURRENT_LANGUAGE if config.CURRENT_LANGUAGE in ["en", ] else None
         )
         
-        text = str(transcription).strip()
+        text = transcription.text.strip()
         _handle_transcription(text, audio_data, callback)
 
     except Exception as e:

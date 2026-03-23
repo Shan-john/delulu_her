@@ -18,7 +18,7 @@ import config
 from consciousness import environment, state, thought_loop
 from core import audio, personality, prompt_builder, reasoning, tts
 from memory import database, extractor, learner, retriever
-from services import email_service, music_service, reminder_service
+from services import email_service, music_service, reminder_service, ha_service
 from utils.logger import get_logger
 
 log = get_logger("main")
@@ -97,21 +97,30 @@ def on_user_speech(user_text: str) -> None:
         
         user_text_lower = user_text.lower().strip()
         
-        # Check if it starts with any of the fuzzy names
         detected_name = None
-        for f in fuzzy_names:
-            if user_text_lower.startswith(f):
+        match_start = -1
+        match_end = -1
+        
+        # Sort fuzzy names by length descending so we match longest words first
+        sorted_fuzzy = sorted(fuzzy_names, key=len, reverse=True)
+        
+        for f in sorted_fuzzy:
+            idx = user_text_lower.find(f)
+            if idx != -1:
                 detected_name = f
+                match_start = idx
+                match_end = idx + len(f)
                 break
         
         if not detected_name:
             log.debug("Wake-word not detected, skipping.")
             return
 
-        # Strip the detected wake-word carefully
-        clean_text = user_text.strip()[len(detected_name):].strip()
-        # Remove any leading punctuation (like commas) after the name
-        clean_text = clean_text.lstrip(",.?! ").strip()
+        # Removing the detected wake-word from the original string
+        clean_text = (user_text[:match_start] + " " + user_text[match_end:]).strip()
+        # Remove any leftover punctuation around where the wake word was
+        clean_text = " ".join(clean_text.split())
+        clean_text = clean_text.strip(",.?! ").strip()
         
         if not clean_text:
             tts.speak(f"Yes bestie? I'm listening!")
@@ -172,6 +181,30 @@ def on_user_speech(user_text: str) -> None:
         raw_response = reasoning.generate(prompt, max_tokens=100, temperature=0.7)
         final_response = personality.apply_personality(raw_response, mood=state.get_mood())
 
+        # 3.5 Home Assistant Integration
+        if config.HA_ENABLED:
+            if "turn on" in text_lower or "switch on" in text_lower:
+                device = text_lower.replace("turn on", "").replace("switch on", "").replace("the", "").strip()
+                if device:
+                    response = ha_service.control_device(device, "on")
+                    log.info("\n✨ delulu (HA): %s\n", response)
+                    tts.speak(response)
+                    return
+            elif "turn off" in text_lower or "switch off" in text_lower:
+                device = text_lower.replace("turn off", "").replace("switch off", "").replace("the", "").strip()
+                if device:
+                    response = ha_service.control_device(device, "off")
+                    log.info("\n✨ delulu (HA): %s\n", response)
+                    tts.speak(response)
+                    return
+            elif "toggle" in text_lower:
+                device = text_lower.replace("toggle", "").replace("the", "").strip()
+                if device:
+                    response = ha_service.control_device(device, "toggle")
+                    log.info("\n✨ delulu (HA): %s\n", response)
+                    tts.speak(response)
+                    return
+
         # 3. Mail Integration
         if any(k in text_lower for k in ["mail", "check my mail", "any mail"]):
             log.info("Fetching latest email...")
@@ -216,6 +249,7 @@ def start_system() -> None:
 
         email_service.start(on_new_email=on_new_email)
         reminder_service.start(tts.speak_sync)
+        ha_service.init()
 
         # Start Thought Loop (inject speak/generate access)
         thought_loop.start(generate_fn=reasoning.generate, speak_fn=tts.speak_sync)
